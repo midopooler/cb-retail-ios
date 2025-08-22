@@ -1,0 +1,34 @@
+[
+  {
+    "embeddingSize" : 768,
+    "name" : "Black Horizon Ale",
+    "imageDigest" : "1024x1024_775365165",
+    "beerId" : "black-horizon-ale",
+    "filename" : "black-horizon-ale.png",
+    "brand" : "Craft Brewery"
+  },
+  {
+    "filename" : "hop-haven.png",
+    "beerId" : "hop-haven",
+    "brand" : "Hop Heaven Brewery",
+    "embeddingSize" : 768,
+    "imageDigest" : "1024x1024_3101812451",
+    "name" : "Hop Haven IPA"
+  },
+  {
+    "beerId" : "aether-brew",
+    "name" : "Aether Brew",
+    "imageDigest" : "1024x1024_1213684067",
+    "filename" : "aether-brew.png",
+    "brand" : "Mystical Ales",
+    "embeddingSize" : 768
+  },
+  {
+    "beerId" : "neon-peak-brew",
+    "filename" : "neon-peak-brew.png",
+    "brand" : "Electric Brewing Co.",
+    "name" : "Neon Peak Brew",
+    "embeddingSize" : 768,
+    "imageDigest" : "1024x1024_940088465"
+  }
+]

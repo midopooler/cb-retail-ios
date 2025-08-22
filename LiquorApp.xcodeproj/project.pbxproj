@@ -34,9 +34,22 @@
 		D1903E1C2E30D615003C066C /* LiquorAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LiquorAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D1903F292E51C338003C066C /* Exceptions for "LiquorApp" folder in "LiquorApp" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D1903E042E30D614003C066C /* LiquorApp */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		D1903E072E30D614003C066C /* LiquorApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D1903F292E51C338003C066C /* Exceptions for "LiquorApp" folder in "LiquorApp" target */,
+			);
 			path = LiquorApp;
 			sourceTree = "<group>";
 		};
@@ -413,6 +426,9 @@
 				DEVELOPMENT_TEAM = DFQY8NB65M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LiquorApp/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "LiquorApp needs access to your camera to scan beer packages and planograms for merchandising analysis. We use the camera to capture photos that are processed locally on your device to identify and match products.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "LiquorApp uses the local network to synchronize your liquor inventory with other devices in your area. This enables real-time P2P sync between multiple devices using the same app.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -441,6 +457,9 @@
 				DEVELOPMENT_TEAM = DFQY8NB65M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LiquorApp/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "LiquorApp needs access to your camera to scan beer packages and planograms for merchandising analysis. We use the camera to capture photos that are processed locally on your device to identify and match products.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "LiquorApp uses the local network to synchronize your liquor inventory with other devices in your area. This enables real-time P2P sync between multiple devices using the same app.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

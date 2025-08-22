@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LandingView: View {
     @State private var showInventory = false
+    @State private var showMerchandising = false
     
     var body: some View {
         NavigationView {
@@ -33,25 +34,48 @@ struct LandingView: View {
                             .padding(.horizontal)
                     }
                     
-                    // Enter inventory button
-                    Button(action: {
-                        showInventory = true
-                    }) {
-                        HStack {
-                            Image(systemName: "list.bullet.rectangle")
-                            Text("Enter Inventory")
+                    // Action buttons
+                    VStack(spacing: 20) {
+                        // Enter inventory button
+                        Button(action: {
+                            showInventory = true
+                        }) {
+                            HStack {
+                                Image(systemName: "list.bullet.rectangle")
+                                Text("Enter Inventory")
+                            }
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.purple)
+                            .padding(.horizontal, 30)
+                            .padding(.vertical, 15)
+                            .background(Color.white)
+                            .cornerRadius(15)
+                            .shadow(radius: 10)
                         }
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.purple)
-                        .padding(.horizontal, 30)
-                        .padding(.vertical, 15)
-                        .background(Color.white)
-                        .cornerRadius(15)
-                        .shadow(radius: 10)
+                        .scaleEffect(showInventory ? 0.95 : 1.0)
+                        .animation(.easeInOut(duration: 0.1), value: showInventory)
+                        
+                        // Merchandising button
+                        Button(action: {
+                            showMerchandising = true
+                        }) {
+                            HStack {
+                                Image(systemName: "camera.viewfinder")
+                                Text("Merchandising Scanner")
+                            }
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 30)
+                            .padding(.vertical, 15)
+                            .background(Color.white)
+                            .cornerRadius(15)
+                            .shadow(radius: 10)
+                        }
+                        .scaleEffect(showMerchandising ? 0.95 : 1.0)
+                        .animation(.easeInOut(duration: 0.1), value: showMerchandising)
                     }
-                    .scaleEffect(showInventory ? 0.95 : 1.0)
-                    .animation(.easeInOut(duration: 0.1), value: showInventory)
                     
                     Spacer()
                 }
@@ -60,6 +84,9 @@ struct LandingView: View {
         }
         .fullScreenCover(isPresented: $showInventory) {
             InventoryView()
+        }
+        .fullScreenCover(isPresented: $showMerchandising) {
+            MerchandisingView()
         }
     }
 }

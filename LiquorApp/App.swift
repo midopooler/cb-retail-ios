@@ -77,6 +77,9 @@ final class LiquorSyncApp {
         }
         networkMonitor.start(queue: networkQueue)
         
+        // Force network permission dialog by attempting actual network operations
+        requestNetworkPermission()
+        
         // Handle app background/foreground states
         setupAppStateMonitoring()
         
@@ -279,8 +282,40 @@ final class LiquorSyncApp {
             Log.info("Network access denied by policy - P2P sync operating in basic mode")
         case .dns(DNSServiceErrorType(kDNSServiceErr_NoAuth)):
             Log.info("Network authorization failed - P2P sync requires network permissions")
+            // Try to trigger the permission dialog by attempting a simple multicast operation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.triggerLocalNetworkPermission()
+            }
         default:
             Log.error("Network error: \(error.localizedDescription)")
+        }
+    }
+    
+    /// Triggers the local network permission dialog by attempting a simple network operation
+    private func triggerLocalNetworkPermission() {
+        let connection = NWConnection(
+            to: NWEndpoint.service(name: "test", type: "_trigger-permission._tcp", domain: "local", interface: nil),
+            using: .tcp
+        )
+        
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                Log.info("Local network permission granted")
+                connection.cancel()
+            case .failed(let error):
+                Log.info("Local network permission request failed: \(error)")
+                connection.cancel()
+            default:
+                break
+            }
+        }
+        
+        connection.start(queue: networkQueue)
+        
+        // Cancel after a short timeout
+        DispatchQueue.global().asyncAfter(deadline: .now() + 3.0) {
+            connection.cancel()
         }
     }
 
@@ -496,6 +531,155 @@ final class LiquorSyncApp {
         
         connection.cancel()
         connections.removeAll { $0 === connection }
+    }
+    
+    /// Force network permission dialog using multiple approaches
+    private func requestNetworkPermission() {
+        Task {
+            do {
+                // Try the proven listener + browser pattern
+                let hasPermission = try await requestLocalNetworkAuthorization()
+                if hasPermission {
+                    Log.info("✅ Local network permission granted")
+                } else {
+                    Log.info("❌ Local network permission denied")
+                    // Try alternative approach after a brief delay
+                    try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                    await requestNetworkPermissionAlternative()
+                }
+            } catch {
+                Log.error("Network permission request failed: \(error.localizedDescription)")
+                // Try alternative approach as fallback
+                await requestNetworkPermissionAlternative()
+            }
+        }
+    }
+    
+    /// Alternative network permission request using direct broadcast
+    private func requestNetworkPermissionAlternative() async {
+        Log.info("🔄 Trying alternative network permission approach...")
+        
+        let queue = DispatchQueue(label: "com.couchbase.liquorapp.networkAuthAlt")
+        
+        // Create a simple UDP socket to trigger permission
+        let connection = NWConnection(host: "224.0.0.251", port: 5353, using: .udp) // mDNS multicast
+        
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                Log.info("✅ Alternative network connection ready - permission likely granted")
+                connection.cancel()
+            case .failed(let error):
+                if let nwError = error as? NWError,
+                   case .dns(DNSServiceErrorType(kDNSServiceErr_NoAuth)) = nwError {
+                    Log.info("🚨 Alternative approach triggered permission request")
+                } else {
+                    Log.info("Alternative network connection failed: \(error.localizedDescription)")
+                }
+                connection.cancel()
+            case .waiting(let error):
+                Log.info("Alternative network connection waiting: \(error.localizedDescription)")
+            default:
+                break
+            }
+        }
+        
+        connection.start(queue: queue)
+        
+        // Cancel after 5 seconds
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5.0) {
+            connection.cancel()
+            Log.info("📱 Alternative network permission request completed")
+        }
+    }
+    
+    /// Checks whether Local Network permission has been granted, using the proven pattern from Nonstrict
+    private func requestLocalNetworkAuthorization() async throws -> Bool {
+        let queue = DispatchQueue(label: "com.couchbase.liquorapp.networkAuth")
+        let serviceType = "_liquorapp._tcp" // Must match NSBonjourServices in Info.plist
+        
+        Log.info("🚨 Starting local network permission request using listener + browser pattern...")
+        
+        // Create listener
+        let listener = try NWListener(using: NWParameters(tls: .none, tcp: NWProtocolTCP.Options()))
+        listener.service = NWListener.Service(name: UUID().uuidString, type: serviceType)
+        listener.newConnectionHandler = { _ in } // Must be set to avoid POSIX error 22
+        
+        // Create browser
+        let parameters = NWParameters()
+        parameters.includePeerToPeer = true
+        let browser = NWBrowser(for: .bonjour(type: serviceType, domain: nil), using: parameters)
+        
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+            var didResume = false
+            
+            func resume(with result: Swift.Result<Bool, Error>) {
+                guard !didResume else { return }
+                didResume = true
+                
+                // Cleanup
+                listener.cancel()
+                browser.cancel()
+                continuation.resume(with: result)
+            }
+            
+            // Listener state handling
+            listener.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    Log.info("🎯 Listener ready - waiting for browser to discover...")
+                case .failed(let error), .waiting(let error):
+                    Log.error("Listener failed: \(error.localizedDescription)")
+                    resume(with: .failure(error))
+                case .cancelled:
+                    Log.info("Listener cancelled")
+                default:
+                    break
+                }
+            }
+            
+            // Browser state handling  
+            browser.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    Log.info("🔍 Browser ready - scanning for local services...")
+                case .failed(let error):
+                    Log.error("Browser failed: \(error.localizedDescription)")
+                    resume(with: .failure(error))
+                case .waiting(let error):
+                    if let nwError = error as? NWError,
+                       case .dns(DNSServiceErrorType(kDNSServiceErr_PolicyDenied)) = nwError {
+                        Log.info("❌ Local Network Permission DENIED")
+                        resume(with: .success(false))
+                    } else {
+                        Log.error("Browser waiting: \(error.localizedDescription)")
+                        resume(with: .failure(error))
+                    }
+                case .cancelled:
+                    Log.info("Browser cancelled")
+                default:
+                    break
+                }
+            }
+            
+            // Browser results handling - this indicates permission was granted
+            browser.browseResultsChangedHandler = { results, changes in
+                if !results.isEmpty {
+                    Log.info("✅ Local Network Permission GRANTED - found \(results.count) services")
+                    resume(with: .success(true))
+                }
+            }
+            
+            // Start both listener and browser
+            listener.start(queue: queue)
+            browser.start(queue: queue)
+            
+            // Auto-timeout after 10 seconds
+            DispatchQueue.global().asyncAfter(deadline: .now() + 10.0) {
+                Log.info("⏰ Network permission request timed out")
+                resume(with: .success(false))
+            }
+        }
     }
     
     // MARK: - Utility Classes
