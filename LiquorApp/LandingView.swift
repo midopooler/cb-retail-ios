@@ -86,7 +86,7 @@ struct LandingView: View {
             InventoryView()
         }
         .fullScreenCover(isPresented: $showMerchandising) {
-            MerchandisingView()
+            SimpleMerchandisingView()
         }
     }
 }

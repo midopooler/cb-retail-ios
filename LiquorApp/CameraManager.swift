@@ -45,6 +45,12 @@ class CameraManager: NSObject, ObservableObject {
 
     
     private func setupSession() {
+        // Prevent multiple setups
+        guard videoDeviceInput == nil else {
+            print("📷 Camera session already configured, skipping setup")
+            return
+        }
+        
         session.beginConfiguration()
         
         session.sessionPreset = .photo

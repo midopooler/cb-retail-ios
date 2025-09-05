@@ -238,6 +238,37 @@ class BeerPhotoDatabaseManager: ObservableObject {
     ///   - limit: Maximum number of results to return
     /// - Returns: Array of similar beer photos with similarity scores
     func searchSimilarBeerPhotos(queryEmbedding: [Float], limit: Int = 10) async -> [(BeerPhotoItem, Float)] {
+        // 🚀 OPTIMIZATION: Use pre-computed embeddings for PlantPal-level performance
+        let embeddingLoader = BuildTimeBeerEmbeddingLoader.shared
+        
+        if embeddingLoader.hasPreComputedEmbeddings {
+            print("⚡ Using pre-computed embeddings for instant search (PlantPal style)...")
+            
+            // Search using pre-computed embeddings (much faster than SQL++)
+            let preComputedResults = embeddingLoader.searchSimilarBeers(queryEmbedding: queryEmbedding, limit: limit)
+            
+            // Convert to BeerPhotoItem format
+            let searchResults: [(BeerPhotoItem, Float)] = preComputedResults.map { (preComputedBeer, similarity) in
+                let beerPhoto = BeerPhotoItem(
+                    filename: preComputedBeer.filename,
+                    name: preComputedBeer.name,
+                    brand: preComputedBeer.brand,
+                    packSize: preComputedBeer.packSize,
+                    embedding: preComputedBeer.embedding
+                )
+                return (beerPhoto, similarity)
+            }
+            
+            print("⚡ Found \(searchResults.count) beer matches using pre-computed embeddings")
+            return searchResults
+        } else {
+            print("⚠️ Pre-computed embeddings not available, falling back to database search...")
+            return await fallbackDatabaseSearch(queryEmbedding: queryEmbedding, limit: limit)
+        }
+    }
+    
+    /// Fallback database search when pre-computed embeddings are not available
+    private func fallbackDatabaseSearch(queryEmbedding: [Float], limit: Int) async -> [(BeerPhotoItem, Float)] {
         guard let database = database else {
             print("❌ Database not available for vector search")
             return []
@@ -246,72 +277,36 @@ class BeerPhotoDatabaseManager: ObservableObject {
         do {
             let collection = try database.createCollection(name: collectionName)
             
-            // SQL++ query with VECTOR_MATCH and VECTOR_DISTANCE for real vector search
+            // Simple SQL query without vector search for fallback
             let sql = """
-                SELECT META().id, filename, name, brand, packSize, embedding, dateAdded,
-                       VECTOR_DISTANCE(\(vectorIndexName)) as distance
+                SELECT META().id, filename, name, brand, packSize, embedding, dateAdded
                 FROM \(collectionName)
                 WHERE type = "beer_photo"
-                  AND VECTOR_MATCH(\(vectorIndexName), $queryVector, \(limit))
-                ORDER BY VECTOR_DISTANCE(\(vectorIndexName))
-                LIMIT \(limit)
+                LIMIT \(limit * 2)
             """
             
-            // Create the query
             let query = try database.createQuery(sql)
-            
-            // Convert Float array to ArrayObject for Couchbase parameters
-            let arrayObject = MutableArrayObject()
-            for value in queryEmbedding {
-                arrayObject.addFloat(value)
-            }
-            
-            // Set query parameters
-            query.parameters = Parameters().setArray(arrayObject, forName: "queryVector")
-            
-            print("🔍 Executing vector search query with SQL++...")
-            print("📊 Query: \(sql)")
-            print("🎯 Vector dimension: \(queryEmbedding.count)")
-            
-            // Execute the query
             let results = try query.execute()
             var searchResults: [(BeerPhotoItem, Float)] = []
             
-            var resultCount = 0
             for result in results {
-                resultCount += 1
-                print("🔍 Processing vector search result \(resultCount)")
-                
-                // Extract data from result
-                guard let id = result.string(forKey: "id"),
-                      let filename = result.string(forKey: "filename"),
+                guard let filename = result.string(forKey: "filename"),
                       let name = result.string(forKey: "name"),
                       let brand = result.string(forKey: "brand"),
                       let packSize = result.string(forKey: "packSize"),
-                      let dateString = result.string(forKey: "dateAdded"),
-                      let dateAdded = ISO8601DateFormatter().date(from: dateString) else {
-                    print("❌ Failed to extract basic data from vector search result")
+                      let embeddingArray = result.array(forKey: "embedding") else {
                     continue
                 }
                 
-                let distance = result.double(forKey: "distance") // This returns non-optional Double
-                if distance == 0.0 && result.value(forKey: "distance") == nil {
-                    print("❌ Failed to extract data from vector search result")
-                    continue
-                }
-                
-                // Extract embedding
+                // Convert ArrayObject to [Float]
                 var embedding: [Float] = []
-                if let embeddingArray = result.array(forKey: "embedding") {
-                    for i in 0..<embeddingArray.count {
-                        embedding.append(embeddingArray.float(at: i))
-                    }
-                } else {
-                    print("❌ Failed to extract embedding from vector search result")
-                    continue
+                for i in 0..<embeddingArray.count {
+                    embedding.append(embeddingArray.float(at: i))
                 }
                 
-                // Create BeerPhotoItem using proper constructor
+                // Manual similarity calculation
+                let similarity = calculateCosineSimilarity(queryEmbedding, embedding)
+                
                 let beerPhoto = BeerPhotoItem(
                     filename: filename,
                     name: name,
@@ -320,53 +315,58 @@ class BeerPhotoDatabaseManager: ObservableObject {
                     embedding: embedding
                 )
                 
-                // Convert distance to similarity score (cosine distance -> similarity)
-                let similarity = Float(1.0 - distance) // Convert distance to similarity
-                
                 searchResults.append((beerPhoto, similarity))
-                print("✅ Vector search result: \(name) - distance: \(distance), similarity: \(similarity)")
             }
             
-            print("🔍 Found \(searchResults.count) similar beer photos using Couchbase Vector Search")
+            // Sort by similarity and apply filtering
+            let sortedResults = searchResults.sorted { $0.1 > $1.1 }
+            let filteredResults = Array(sortedResults.prefix(limit))
             
-            // Apply PlantPal-style filtering for better results
-            return applyPlantPalFiltering(to: searchResults)
+            print("🔍 Found \(filteredResults.count) beer matches using fallback database search")
+            return filteredResults
         } catch {
-            print("❌ Failed to execute Couchbase Vector Search: \(error.localizedDescription)")
-            print("🚫 No fallback - Couchbase Vector Search is required for reliable results")
+            print("❌ Failed to execute fallback database search: \(error.localizedDescription)")
             return []
         }
     }
     
-    /// Apply enhanced filtering for better similarity results
+    /// Calculate cosine similarity between two vectors (PlantPal style)
+    private func calculateCosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
+        guard a.count == b.count else { return 0.0 }
+        
+        let dotProduct = zip(a, b).map { $0 * $1 }.reduce(0, +)
+        let magnitudeA = sqrt(a.map { $0 * $0 }.reduce(0, +))
+        let magnitudeB = sqrt(b.map { $0 * $0 }.reduce(0, +))
+        
+        guard magnitudeA > 0 && magnitudeB > 0 else { return 0.0 }
+        
+        return dotProduct / (magnitudeA * magnitudeB)
+    }
+    
+    /// Apply relaxed filtering for better beer detection (PlantPal style)
     private func applyPlantPalFiltering(to results: [(BeerPhotoItem, Float)]) -> [(BeerPhotoItem, Float)] {
         guard !results.isEmpty else {
             print("🤷‍♂️ No similarity results to filter")
             return []
         }
         
-        // 🔧 MUCH STRICTER: Only accept very high confidence matches (>= 0.85)
-        let highConfidenceMatches = results.filter { $0.1 >= 0.85 }
+        // 🔧 MUCH MORE PERMISSIVE: Accept reasonable confidence matches (>= 0.3)
+        let reasonableMatches = results.filter { $0.1 >= 0.3 }
         
-        if highConfidenceMatches.isEmpty {
-            print("🤷‍♂️ No high-confidence beer photo matches found (>= 85%)")
+        if reasonableMatches.isEmpty {
+            print("🤷‍♂️ No reasonable beer photo matches found (>= 30%)")
             return []
         }
         
-        // Additional filtering: require significant gap between matches to avoid ambiguity
-        let bestSimilarity = highConfidenceMatches.first?.1 ?? 0.0
+        // Sort by similarity (best first)
+        let sortedResults = reasonableMatches.sorted { $0.1 > $1.1 }
+        let bestSimilarity = sortedResults.first?.1 ?? 0.0
         
-        // 🔧 TIGHTER FILTERING: Only within 90% of best match (was 70%)
-        let filteredResults = highConfidenceMatches.filter { $0.1 >= bestSimilarity * 0.9 }
+        // 🔧 RELAXED FILTERING: Accept anything within 50% of best match (very permissive)
+        let filteredResults = sortedResults.filter { $0.1 >= bestSimilarity * 0.5 }
         
-        // 🔧 ADDITIONAL CHECK: If best match is < 90%, reject all results
-        if bestSimilarity < 0.90 {
-            print("🤷‍♂️ Best match (\(String(format: "%.1f", bestSimilarity * 100))%) below 90% threshold - rejecting all results")
-            return []
-        }
-        
-        print("✅ Applied enhanced filtering: \(results.count) → \(filteredResults.count) results (best: \(String(format: "%.1f", bestSimilarity * 100))%)")
-        return Array(filteredResults.prefix(3)) // Limit to top 3 matches
+        print("✅ Applied relaxed filtering: \(results.count) → \(filteredResults.count) results (best: \(String(format: "%.1f", bestSimilarity * 100))%)")
+        return Array(filteredResults.prefix(5)) // Return top 5 matches
     }
     
 

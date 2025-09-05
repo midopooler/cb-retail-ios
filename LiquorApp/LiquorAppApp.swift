@@ -24,6 +24,12 @@ struct LiquorAppApp: App {
         
         // 🚨 CRITICAL: Trigger network permission dialog immediately at app startup
         triggerNetworkPermissionDialog()
+        
+        // 🚀 Initialize PlantPal-style embedding optimization
+        Task {
+            BuildTimeBeerEmbeddingLoader.shared.processBeerData()
+            BuildTimeBeerEmbeddingLoader.shared.printPerformanceMetrics()
+        }
     }
     
     var body: some Scene {
